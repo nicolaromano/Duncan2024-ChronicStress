@@ -150,7 +150,7 @@ dds <- dds[filtered_genes$ensembl,]
 dds.vst <- vst(dds, blind = FALSE)
 
 # Principal component analysis 
-png("PCA_by_batch.png", res=150, width = 1200, height = 1200)
+png("plots/PCA_by_batch.png", res=150, width = 1200, height = 1200)
 plotPCA(dds.vst, intgroup = "Batch") +
   ylim(-20, 40) +
   xlim(-20, 40) +
@@ -163,7 +163,7 @@ plotPCA(dds.vst, intgroup = "Batch") +
         legend.title = element_text(size=13))
 dev.off()
 
-png("PCA_by_group.png", res=150, width = 1200, height = 1200)
+png("plots/PCA_by_group.png", res=150, width = 1200, height = 1200)
 plotPCA(dds.vst, intgroup = "Group") +
   ylim(-20, 40) +
   xlim(-20, 40) +
@@ -231,7 +231,7 @@ MA_plots <- lapply(names(DE_res), function(x){
 
 do.call("grid.arrange", c(MA_plots, ncol=3))
 
-png("MA_plots.png", res = 250, width = 2400, height = 1600)
+png("plots/MA_plots.png", res = 250, width = 2400, height = 1600)
 do.call("grid.arrange", c(MA_plots, ncol=3))
 dev.off()
 
@@ -290,7 +290,7 @@ meanExpr <- data.frame(CTRL = expr_z_score %>%
 n_cutree <- 4
 leg_br <- seq(-1.5, 1.5, 0.5)
 
-png("DE_heatmap.png", height = 1500, width = 1500, res = 150)
+png("plots/DE_heatmap.png", height = 1500, width = 1500, res = 150)
 ph <- pheatmap(meanExpr, cluster_cols = FALSE, show_rownames = FALSE,
                main = "All DE genes",
                clustering_method = "ward.D2",
@@ -323,7 +323,7 @@ plot_profile <- function(group)
   g
 }
 
-png("expression_profiles.png", height = 1500, width = 1500, res = 150)
+png("plots/expression_profiles.png", height = 1500, width = 1500, res = 150)
 do.call("grid.arrange", c(lapply(1:4, plot_profile), ncol=2))
 dev.off()
 
