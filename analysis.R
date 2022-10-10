@@ -149,6 +149,9 @@ dds <- dds[filtered_genes$ensembl,]
 # Apply variance-stabilising transform (for PCA calculation)
 dds.vst <- vst(dds, blind = FALSE)
 
+saveRDS(dds, "outs/dds_batch_corrected.rds")
+saveRDS(dds.vst, "outs/dds_vst_batch_corrected.rds")
+
 # Principal component analysis 
 png("plots/PCA_by_batch.png", res=150, width = 1200, height = 1200)
 plotPCA(dds.vst, intgroup = "Batch") +
