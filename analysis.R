@@ -164,6 +164,9 @@ dds.vst <- vst(dds, blind = FALSE)
 saveRDS(dds, "outs/dds_batch_corrected.rds")
 saveRDS(dds.vst, "outs/dds_vst_batch_corrected.rds")
 
+dds <- readRDS("outs/dds_batch_corrected.rds")
+dds.vst <- readRDS("outs/dds_vst_batch_corrected.rds")
+
 # Principal component analysis
 png("plots/PCA_by_batch.png", res = 150, width = 1200, height = 1200)
 plotPCA(dds.vst, intgroup = "Batch") +
@@ -217,6 +220,9 @@ DE_res <- lapply(contr, function(ctr) {
 # Set the list names to the contrasts for ease of use
 names(DE_res) <- contr
 
+saveRDS(DE_res, "outs/DE_res.rds")
+DE_res <- readRDS("outs/DE_res.rds")
+
 # MA plots
 MA_plots <- lapply(names(DE_res), function(x) {
   res <- DE_res[[x]] %>%
@@ -242,9 +248,9 @@ MA_plots <- lapply(names(DE_res), function(x) {
     scale_color_manual(
       values = c(
         "lightgray", # Not changed
-        "#ed2f2f", # Downregulated
-        "#80c123"
-      ) # Upregulated
+        "#4575b4",   # Downregulated
+        "#d73027"    # Upregulated
+      )
     ) +
     xlab(expression(log[10] ~ "(mean expression)")) +
     ylab(expression(log[2] ~ "fold change")) +
@@ -263,14 +269,28 @@ MA_plots <- lapply(names(DE_res), function(x) {
 
 do.call("grid.arrange", c(MA_plots, ncol = 3))
 
-png("plots/MA_plots.png", res = 250, width = 2400, height = 1600)
+# png("plots/MA_plots.png", res = 250, width = 2400, height = 1600)
+pdf("plots/MA_plots.pdf", width = 12, height = 8)
 do.call("grid.arrange", c(MA_plots, ncol = 3))
 dev.off()
 
-
 ## Clustering of expression pattern
 expr <- as.data.frame(assay(dds))
+
+# Write expression matrix to csv
+write.csv(expr, "outs/expression_all_groups.csv", row.names = TRUE)
 rownames(expr) <- make.unique(get_mgi_from_ensembl(rownames(expr)))
+# Write DE results to csv
+for (grp in names(DE_res)) {
+  write.csv(
+    DE_res[[grp]] %>%
+      as.data.frame() %>%
+      rownames_to_column("ENSEMBL_id") %>%
+      mutate(MGI_name = get_mgi_from_ensembl(ENSEMBL_id)),
+    paste0("outs/DE_", grp, ".csv"),
+    row.names = FALSE
+  )
+}
 
 # Get only DE genes (in any comparison)
 sigCS <- DE_res$Group_CS_vs_CTRL %>%
@@ -322,9 +342,10 @@ meanExpr <- data.frame(
 )
 
 n_cutree <- 4
-leg_br <- seq(-1.5, 1.5, 0.5)
+leg_br <- seq(-2, 2, 0.5)
 
-png("plots/DE_heatmap.png", height = 1500, width = 1500, res = 150)
+png("plots/DE_heatmap.png", height = 1500, width = 1000, res = 150)
+# pdf("plots/DE_heatmap.pdf", height = 15, width = 10)
 ph <- pheatmap(meanExpr,
   cluster_cols = FALSE, show_rownames = FALSE,
   main = "All DE genes",
@@ -346,8 +367,8 @@ plot_profile <- function(group) {
     mutate(Group = factor(Group, levels = c("CTRL", "CS", "CSR4", "CSR12"))) -> expr_long
 
   # Save gene names to csv
-  write.csv(unique(expr_long$Gene),
-    file = paste0("outs/DE_genes_", group, ".csv"),
+  write.csv(data.frame(gene = unique(expr_long$Gene)),
+    file = paste0("outs/DE_genes_group_", group, ".csv"),
     row.names = FALSE,
     quote = FALSE
   )
@@ -370,5 +391,120 @@ plot_profile <- function(group) {
 }
 
 png("plots/expression_profiles.png", height = 1500, width = 1500, res = 150)
+# pdf("plots/expression_profiles.pdf", height = 15, width = 15)
 do.call("grid.arrange", c(lapply(1:4, plot_profile), ncol = 2))
 dev.off()
+
+# Filter genes annotated as GO:0006811 (ion transport)
+
+# The GO terms we're interested in
+# GO:0006811 - ion transport
+# GO:0005215 - transporter activity
+go_ionch <- "GO:0006811"
+go_transp <- "GO:0005215"
+
+genelist <- rownames(dds)
+
+# In this case we use the Mus Musculus dataset
+# We can list all possible datasets using
+# datasets <- listDatasets(useMart("ensembl"))
+# And then grep keywords
+# grep("musculus", datasets$dataset, value = TRUE)
+ensembl <- useEnsembl(
+  biomart = "ENSEMBL_MART_ENSEMBL",
+  dataset = "mmusculus_gene_ensembl"
+)
+
+# Gets the gene symbol for all genes annotated with our list of GO id
+# AND that are part of our list of genes
+ionchannels <- getBM(
+  attributes = c("ensembl_gene_id", "mgi_symbol"), # What you want to retrieve
+  filters = c("go", "ensembl_gene_id"), # What you are filtering on
+  values = list(go_ionch, genelist), # The values for the filter
+  mart = ensembl,
+  uniqueRows = TRUE,
+  useCache = FALSE
+)
+
+transporters <- getBM(
+  attributes = c("ensembl_gene_id", "mgi_symbol"), # What you want to retrieve
+  filters = c("go", "ensembl_gene_id"), # What you are filtering on
+  values = list(go_transp, genelist), # The values for the filter
+  mart = ensembl,
+  uniqueRows = TRUE,
+  useCache = FALSE
+)
+transporters <- transporters[!transporters$mgi_symbol %in% ionchannels$mgi_symbol, ]
+
+filtered_genes <- rbind(ionchannels, transporters)
+filtered_genes <- filtered_genes[filteredgenes$mgi_symbol %in% genes$mgi_symbol, ]
+
+ionch_expr <- as.data.frame(assay(dds))[filtered_genes$ensembl_gene_id, ]
+rownames(ionch_expr) <- filtered_genes$mgi_symbol
+
+# z-score expression
+ionch_expr <- t(apply(ionch_expr, 1, z_score))
+
+# Now average by group
+meanExpr_ionch <- data.frame(
+  CTRL = ionch_expr %>%
+    as.data.frame() %>%
+    select(starts_with("CM-")) %>%
+    rowMeans(na.rm = TRUE),
+  CS = ionch_expr %>%
+    as.data.frame() %>%
+    select(starts_with("CS-")) %>%
+    rowMeans(na.rm = TRUE),
+  CSR4 = ionch_expr %>%
+    as.data.frame() %>%
+    select(starts_with("CSR-")) %>%
+    rowMeans(na.rm = TRUE),
+  CSR12 = ionch_expr %>%
+    as.data.frame() %>%
+    select(starts_with("CSR_12wk")) %>%
+    rowMeans(na.rm = TRUE)
+)
+
+# Find the GO terms for each gene
+go_terms <- getBM(
+  attributes = c("ensembl_gene_id", "go_id", "mgi_symbol"), # What you want to retrieve
+  filters = c("ensembl_gene_id"), # What you are filtering on
+  values = get_ensembl_from_mgi(rownames(meanExpr_ionch)), # The values for the filter
+  mart = ensembl,
+  uniqueRows = TRUE,
+  useCache = FALSE
+)
+
+pheatmap(meanExpr_ionch,
+  cluster_cols = FALSE, show_rownames = FALSE,
+  main = "Ion channels and transporters",
+  clustering_method = "ward.D2",
+  cutree_rows = 4, treeheight_row = 100,
+)
+
+# Only DE
+de_expr <- meanExpr_ionch[rownames(meanExpr_ionch) %in% allDEgenes, ]
+pdf("plots/DE-ionchannels.pdf", height = 10, width = 4)
+pheatmap(de_expr,
+  cluster_cols = FALSE, show_rownames = TRUE,
+  main = "Ion channels and transporters",
+  clustering_method = "ward.D2",
+  cutree_rows = 4, treeheight_row = 100,
+  )
+
+dev.off()
+
+# Total number of genes = 16291
+length(rownames(dds))
+# Total number of ion channels/transporters = 530
+length(rownames(meanExpr_ionch))
+# Propotion of ion channels/transporters = 3.25%
+length(rownames(meanExpr_ionch)) / length(rownames(dds))
+
+# Number of DE ion channels/transporters = 41
+length(rownames(de_expr))
+# Proportion of DE ion channels/transporters = 7.74%
+length(rownames(de_expr)) / length(rownames(meanExpr_ionch))
+# Of all DE genes, how many are ion channels/transporters = 3.4%
+length(rownames(de_expr)) / length(allDEgenes)
+
